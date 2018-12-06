@@ -1,0 +1,98 @@
+diff --git a/bn256/bn256.go b/bn256/bn256.go
+index bc96e3d..8fbf24b 100644
+--- a/bn256/bn256.go
++++ b/bn256/bn256.go
+@@ -93,14 +93,18 @@ func (e *G1) Neg(a *G1) *G1 {
+ 
+ // Marshal converts n to a byte slice.
+ func (n *G1) Marshal() []byte {
++	// Each value is a 256-bit number.
++	const numBytes = 256 / 8
++
++	if n.p.IsInfinity() {
++		return make([]byte, numBytes*2)
++	}
++
+ 	n.p.MakeAffine(nil)
+ 
+ 	xBytes := new(big.Int).Mod(n.p.x, p).Bytes()
+ 	yBytes := new(big.Int).Mod(n.p.y, p).Bytes()
+ 
+-	// Each value is a 256-bit number.
+-	const numBytes = 256 / 8
+-
+ 	ret := make([]byte, numBytes*2)
+ 	copy(ret[1*numBytes-len(xBytes):], xBytes)
+ 	copy(ret[2*numBytes-len(yBytes):], yBytes)
+@@ -201,6 +205,13 @@ func (e *G2) Add(a, b *G2) *G2 {
+ 
+ // Marshal converts n into a byte slice.
+ func (n *G2) Marshal() []byte {
++	// Each value is a 256-bit number.
++	const numBytes = 256 / 8
++
++	if n.p.IsInfinity() {
++		return make([]byte, numBytes*4)
++	}
++
+ 	n.p.MakeAffine(nil)
+ 
+ 	xxBytes := new(big.Int).Mod(n.p.x.x, p).Bytes()
+@@ -208,9 +219,6 @@ func (n *G2) Marshal() []byte {
+ 	yxBytes := new(big.Int).Mod(n.p.y.x, p).Bytes()
+ 	yyBytes := new(big.Int).Mod(n.p.y.y, p).Bytes()
+ 
+-	// Each value is a 256-bit number.
+-	const numBytes = 256 / 8
+-
+ 	ret := make([]byte, numBytes*4)
+ 	copy(ret[1*numBytes-len(xxBytes):], xxBytes)
+ 	copy(ret[2*numBytes-len(xyBytes):], xyBytes)
+diff --git a/bn256/curve.go b/bn256/curve.go
+index 55b7063..63c052b 100644
+--- a/bn256/curve.go
++++ b/bn256/curve.go
+@@ -245,10 +245,19 @@ func (c *curvePoint) Mul(a *curvePoint, scalar *big.Int, pool *bnPool) *curvePoi
+ 	return c
+ }
+ 
++// MakeAffine converts c to affine form and returns c. If c is ∞, then it sets
++// c to 0 : 1 : 0.
+ func (c *curvePoint) MakeAffine(pool *bnPool) *curvePoint {
+ 	if words := c.z.Bits(); len(words) == 1 && words[0] == 1 {
+ 		return c
+ 	}
++	if c.IsInfinity() {
++		c.x.SetInt64(0)
++		c.y.SetInt64(1)
++		c.z.SetInt64(0)
++		c.t.SetInt64(0)
++		return c
++	}
+ 
+ 	zInv := pool.Get().ModInverse(c.z, p)
+ 	t := pool.Get().Mul(c.y, zInv)
+diff --git a/bn256/twist.go b/bn256/twist.go
+index 4f8b3fe..056d80f 100644
+--- a/bn256/twist.go
++++ b/bn256/twist.go
+@@ -219,10 +219,19 @@ func (c *twistPoint) Mul(a *twistPoint, scalar *big.Int, pool *bnPool) *twistPoi
+ 	return c
+ }
+ 
++// MakeAffine converts c to affine form and returns c. If c is ∞, then it sets
++// c to 0 : 1 : 0.
+ func (c *twistPoint) MakeAffine(pool *bnPool) *twistPoint {
+ 	if c.z.IsOne() {
+ 		return c
+ 	}
++	if c.IsInfinity() {
++		c.x.SetZero()
++		c.y.SetOne()
++		c.z.SetZero()
++		c.t.SetZero()
++		return c
++	}
+ 
+ 	zInv := newGFp2(pool).Invert(c.z, pool)
+ 	t := newGFp2(pool).Mul(c.y, zInv, pool)
